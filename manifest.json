@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Flight Delay Checker",
+  "version": "1.0.0",
+  "description": "Shows historical delay data for flights on Google Flights",
+
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+
+  "host_permissions": [
+    "https://www.google.com/travel/flights/*",
+    "https://*.cloudfunctions.net/*"
+  ],
+
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.google.com/travel/flights",
+        "https://www.google.com/travel/flights?*",
+        "https://www.google.com/travel/flights/*"
+      ],
+      "js": ["src/content.js"],
+      "css": ["src/styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "background": {
+    "service_worker": "src/background.js"
+  },
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
