@@ -8,7 +8,7 @@
 // TODO: Replace with your deployed Firebase Functions URL
 const API_BASE = "https://us-central1-flight-delays-eb2cc.cloudfunctions.net";
 
-const DEBUG = true;
+const DEBUG = false;
 
 function log(component, message, data = null) {
   if (!DEBUG) return;
@@ -63,7 +63,25 @@ async function registerInstall() {
 // MESSAGE HANDLER
 // ============================================================
 
+// Validate sender for content script messages
+function isValidContentScriptSender(sender) {
+  if (!sender.tab || !sender.url) return false;
+  try {
+    const url = new URL(sender.url);
+    return url.hostname === 'www.google.com' && url.pathname.startsWith('/travel/flights');
+  } catch {
+    return false;
+  }
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Actions that should only come from content scripts
+  const contentScriptActions = ['proactiveLookup', 'updateBadge'];
+  if (contentScriptActions.includes(request.action) && !isValidContentScriptSender(sender)) {
+    sendResponse({ error: 'Unauthorized sender' });
+    return true;
+  }
+
   if (request.action === 'getDelayStats') {
     log('Message', 'Received getDelayStats request', {
       flightNumber: request.flightNumber,

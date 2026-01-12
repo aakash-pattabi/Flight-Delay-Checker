@@ -10,6 +10,10 @@
   // Current route
   let currentRoute = { origin: null, destination: null };
 
+  // Observer references for cleanup
+  let domObserver = null;
+  let urlObserver = null;
+
   // Invalid carrier codes
   const INVALID_CARRIER_CODES = new Set([
     'AM', 'PM', 'HR', 'MIN', 'KG', 'LB',
@@ -99,21 +103,21 @@
   function observeDOMChanges() {
     let debounceTimer = null;
 
-    const observer = new MutationObserver(() => {
+    domObserver = new MutationObserver(() => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         if (!currentRoute.origin) extractRoute();
         scanForFlights();
-      }, 300);
+      }, 500);
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    domObserver.observe(document.body, { childList: true, subtree: true });
   }
 
   function observeURLChanges() {
     let lastURL = location.href;
 
-    const observer = new MutationObserver(() => {
+    urlObserver = new MutationObserver(() => {
       if (location.href !== lastURL) {
         lastURL = location.href;
         detectedFlights.clear();
@@ -126,8 +130,23 @@
       }
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    urlObserver.observe(document.body, { childList: true, subtree: true });
   }
+
+  // Cleanup observers on page unload
+  function cleanup() {
+    if (domObserver) {
+      domObserver.disconnect();
+      domObserver = null;
+    }
+    if (urlObserver) {
+      urlObserver.disconnect();
+      urlObserver = null;
+    }
+  }
+
+  window.addEventListener('beforeunload', cleanup);
+  window.addEventListener('pagehide', cleanup);
 
   // Listen for messages from popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {

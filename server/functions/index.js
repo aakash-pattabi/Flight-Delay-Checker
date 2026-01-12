@@ -1,5 +1,6 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const crypto = require("crypto");
 admin.initializeApp();
 
 const db = admin.firestore();
@@ -21,11 +22,10 @@ function shouldShowTipPrompt(totalUsage, lastTipMilestone) {
 }
 
 function getCurrentMilestone(totalUsage, lastTipMilestone) {
-  // Find the earliest milestone that hasn't been dismissed
-  let milestone = getNextTipMilestone(lastTipMilestone);
-  while (milestone <= totalUsage) {
-    // Return the first milestone the user qualifies for but hasn't dismissed
-    return milestone;
+  // Return the next milestone if user qualifies for it
+  const nextMilestone = getNextTipMilestone(lastTipMilestone);
+  if (totalUsage >= nextMilestone) {
+    return nextMilestone;
   }
   return null;
 }
@@ -103,6 +103,16 @@ exports.lookup = functions.https.onRequest(async (req, res) => {
     });
   }
 
+  // Validate installId format (ext_ + 16 hex chars)
+  if (typeof installId !== "string" || !installId.match(/^ext_[a-f0-9]{16}$/)) {
+    return res.status(400).json({ error: "Invalid install token format" });
+  }
+
+  // Validate flightNumber format and length
+  if (typeof flightNumber !== "string" || flightNumber.length > 10) {
+    return res.status(400).json({ error: "Invalid flight number format" });
+  }
+
   // 1. Validate token and check rate limit
   const tokenRef = db.collection("tokens").doc(installId);
   const tokenDoc = await tokenRef.get();
@@ -158,7 +168,7 @@ exports.lookup = functions.https.onRequest(async (req, res) => {
   // 3. Cache miss — call FlightAware API
   console.log(`Cache miss for ${cacheKey}, calling FlightAware API`);
 
-  const FLIGHTAWARE_API_KEY = functions.config().flightaware?.key;
+  const FLIGHTAWARE_API_KEY = process.env.FLIGHTAWARE_API_KEY;
   if (!FLIGHTAWARE_API_KEY) {
     console.error("FlightAware API key not configured");
     return res.status(500).json({ error: "Server configuration error" });
@@ -245,9 +255,14 @@ exports.dismissTip = functions.https.onRequest(async (req, res) => {
     });
   }
 
-  // Validate milestone is a number
+  // Validate installId format (ext_ + 16 hex chars)
+  if (typeof installId !== "string" || !installId.match(/^ext_[a-f0-9]{16}$/)) {
+    return res.status(400).json({ error: "Invalid install token format" });
+  }
+
+  // Validate milestone is a number within reasonable bounds
   const milestoneNum = Number(milestone);
-  if (isNaN(milestoneNum) || milestoneNum < 0) {
+  if (isNaN(milestoneNum) || milestoneNum < 0 || milestoneNum > 1000000) {
     return res.status(400).json({ error: "Invalid milestone value" });
   }
 
@@ -308,11 +323,11 @@ async function fetchFromFlightAware(flightNumber, apiKey) {
     console.log(`Response for ${ident}: ${response.status}`);
 
     if (response.status === 401) {
-      throw new Error("Invalid FlightAware API key");
+      throw new Error("API authentication error");
     }
 
     if (response.status === 429) {
-      throw new Error("FlightAware rate limit exceeded");
+      throw new Error("Service temporarily unavailable");
     }
 
     if (response.status === 404) {
@@ -385,10 +400,5 @@ function percentile(sortedArr, p) {
 }
 
 function generateRandomId(length) {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  return crypto.randomBytes(length).toString("hex").slice(0, length);
 }

@@ -3,6 +3,7 @@
   "name": "Flight Delay Checker",
   "version": "1.0.0",
   "description": "Shows historical delay data for flights on Google Flights",
+  "author": "Aakash Pattabi",
 
   "permissions": [
     "storage",
@@ -11,8 +12,12 @@
 
   "host_permissions": [
     "https://www.google.com/travel/flights/*",
-    "https://*.cloudfunctions.net/*"
+    "https://us-central1-flight-delays-eb2cc.cloudfunctions.net/*"
   ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
 
   "action": {
     "default_popup": "src/popup.html",

@@ -31,6 +31,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     return `https://www.flightstats.com/v2/flight-ontime-performance-rating/${carrier}/${number}/${originCode}`;
   }
 
+  // Sanitize user-controlled strings for safe HTML insertion
+  function escapeHtml(str) {
+    if (typeof str !== 'string') return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   // Track flight delay status for badge color
   let totalFlights = 0;
   let loadedFlights = 0;
@@ -134,7 +145,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     card.innerHTML = `
       <div class="flight-header">
-        <span class="flight-number">${flight.displayName}</span>
+        <span class="flight-number">${escapeHtml(flight.displayName)}</span>
         <span class="flight-status loading"><span class="spinner"></span>Loading...</span>
       </div>
       <div class="flight-details">
@@ -159,7 +170,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         <div class="flight-footer" id="flightFooter">
           <span class="flight-footer-left" id="footerText"></span>
           <span class="data-links">
-            Raw Data: <a href="${flightAwareUrl}" target="_blank" title="View on FlightAware">FlightAware</a> | <a href="${flightStatsUrl}" target="_blank" title="View on FlightStats">FlightStats</a>
+            Raw Data: <a href="${escapeHtml(flightAwareUrl)}" target="_blank" rel="noopener noreferrer" title="View on FlightAware">FlightAware</a> | <a href="${escapeHtml(flightStatsUrl)}" target="_blank" rel="noopener noreferrer" title="View on FlightStats">FlightStats</a>
           </span>
         </div>
       </div>
@@ -355,10 +366,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     card.innerHTML = `
       <button class="tip-dismiss" id="tipDismiss" title="Dismiss">&times;</button>
       <div class="tip-content">
-        <div class="tip-headline">Enjoying the data? Buy me a coffee</div>
+        <div class="tip-headline">Enjoying the extension? Consider a tip</div>
         <div class="tip-value">You've checked ${totalLookups} flight${totalLookups !== 1 ? 's' : ''} for delays</div>
-        <a href="${STRIPE_TIP_LINK}" target="_blank" class="tip-button" id="tipButton">
-          <span class="tip-icon">☕</span> Leave a Tip
+        <a href="${STRIPE_TIP_LINK}" target="_blank" rel="noopener noreferrer" class="tip-button" id="tipButton">
+          Leave a Tip
         </a>
       </div>
     `;
