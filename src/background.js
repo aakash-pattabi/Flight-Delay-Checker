@@ -112,6 +112,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'dismissTip') {
+    log('Tip', 'Dismissing tip at milestone', { milestone: request.milestone });
+    dismissTip(request.milestone)
+      .then(response => {
+        log('Tip', 'Tip dismissed', response);
+        sendResponse(response);
+      })
+      .catch(error => {
+        log('Tip', 'Dismiss error', error.message);
+        sendResponse({ error: error.message });
+      });
+    return true;
+  }
+
   if (request.action === 'proactiveLookup') {
     const tabId = sender.tab?.id;
     const flights = request.flights || [];
@@ -241,10 +255,51 @@ async function handleFlightLookup(flightNumber, origin, destination) {
       });
     }
 
-    return { stats: result.stats, fromCache: result.source === 'cache' };
+    return {
+      stats: result.stats,
+      fromCache: result.source === 'cache',
+      totalLookups: result.totalLookups,
+      showTipPrompt: result.showTipPrompt,
+      currentMilestone: result.currentMilestone
+    };
 
   } catch (err) {
     log('API', 'Fetch error', err.message);
+    return { error: 'Network error: ' + err.message };
+  }
+}
+
+// ============================================================
+// DISMISS TIP FUNCTION
+// ============================================================
+
+async function dismissTip(milestone) {
+  const data = await chrome.storage.local.get('installId');
+
+  if (!data.installId) {
+    return { error: 'Not registered' };
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/dismissTip`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        installId: data.installId,
+        milestone: milestone
+      })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      return { error: result.error || 'Failed to dismiss tip' };
+    }
+
+    return { success: true };
+
+  } catch (err) {
+    log('Tip', 'Dismiss fetch error', err.message);
     return { error: 'Network error: ' + err.message };
   }
 }

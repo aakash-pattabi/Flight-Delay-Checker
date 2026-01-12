@@ -8,6 +8,28 @@ const db = admin.firestore();
 const CACHE_TTL_DAYS = 3;
 const DAILY_RATE_LIMIT = 20;
 
+// Tip milestone configuration
+// First prompt at 5 lookups, then every 100 after (55, 155, 255, ...)
+function getNextTipMilestone(lastMilestone) {
+  if (lastMilestone < 5) return 5;
+  return lastMilestone + 100;
+}
+
+function shouldShowTipPrompt(totalUsage, lastTipMilestone) {
+  const nextMilestone = getNextTipMilestone(lastTipMilestone);
+  return totalUsage >= nextMilestone;
+}
+
+function getCurrentMilestone(totalUsage, lastTipMilestone) {
+  // Find the earliest milestone that hasn't been dismissed
+  let milestone = getNextTipMilestone(lastTipMilestone);
+  while (milestone <= totalUsage) {
+    // Return the first milestone the user qualifies for but hasn't dismissed
+    return milestone;
+  }
+  return null;
+}
+
 // IATA to ICAO carrier code mapping
 const IATA_TO_ICAO = {
   'AA': 'AAL', 'AS': 'ASA', 'B6': 'JBU', 'DL': 'DAL',
@@ -42,7 +64,8 @@ exports.register = functions.https.onRequest(async (req, res) => {
     usageToday: 0,
     usageDate: now.toISOString().split("T")[0],
     totalUsage: 0,
-    tier: "free"
+    tier: "free",
+    lastTipMilestone: 0
   });
 
   console.log(`Registered new install: ${installId}`);
@@ -119,9 +142,15 @@ exports.lookup = functions.https.onRequest(async (req, res) => {
 
     if (cacheAge < cacheTTL) {
       console.log(`Cache hit for ${cacheKey}`);
+      const totalUsage = tokenData.totalUsage || 0;
+      const lastTipMilestone = tokenData.lastTipMilestone || 0;
+      const showTip = shouldShowTipPrompt(totalUsage, lastTipMilestone);
       return res.status(200).json({
         source: "cache",
-        stats: cacheData.stats
+        stats: cacheData.stats,
+        totalLookups: totalUsage,
+        showTipPrompt: showTip,
+        currentMilestone: showTip ? getCurrentMilestone(totalUsage, lastTipMilestone) : null
       });
     }
   }
@@ -164,6 +193,7 @@ exports.lookup = functions.https.onRequest(async (req, res) => {
   });
 
   // 6. Update token usage (only count API calls, not cache hits)
+  const newTotalUsage = (tokenData.totalUsage || 0) + 1;
   await tokenRef.update({
     lastUsed: admin.firestore.Timestamp.now(),
     usageToday: usageToday + 1,
@@ -171,13 +201,74 @@ exports.lookup = functions.https.onRequest(async (req, res) => {
     totalUsage: admin.firestore.FieldValue.increment(1)
   });
 
+  // Calculate tip prompt status with updated usage
+  const lastTipMilestone = tokenData.lastTipMilestone || 0;
+  const showTip = shouldShowTipPrompt(newTotalUsage, lastTipMilestone);
+
   return res.status(200).json({
     source: "api",
     stats: stats,
     usage: {
       today: usageToday + 1,
       limit: DAILY_RATE_LIMIT
-    }
+    },
+    totalLookups: newTotalUsage,
+    showTipPrompt: showTip,
+    currentMilestone: showTip ? getCurrentMilestone(newTotalUsage, lastTipMilestone) : null
+  });
+});
+
+// ============================================================
+// ENDPOINT: /dismiss-tip - Dismiss tip prompt at a milestone
+// ============================================================
+exports.dismissTip = functions.https.onRequest(async (req, res) => {
+  // CORS headers
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).send("");
+  }
+
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const { installId, milestone } = req.body;
+
+  // Validate required fields
+  if (!installId || milestone === undefined) {
+    return res.status(400).json({
+      error: "Missing required fields",
+      required: ["installId", "milestone"]
+    });
+  }
+
+  // Validate milestone is a number
+  const milestoneNum = Number(milestone);
+  if (isNaN(milestoneNum) || milestoneNum < 0) {
+    return res.status(400).json({ error: "Invalid milestone value" });
+  }
+
+  // Validate token exists
+  const tokenRef = db.collection("tokens").doc(installId);
+  const tokenDoc = await tokenRef.get();
+
+  if (!tokenDoc.exists) {
+    return res.status(401).json({ error: "Invalid install token" });
+  }
+
+  // Update lastTipMilestone
+  await tokenRef.update({
+    lastTipMilestone: milestoneNum
+  });
+
+  console.log(`Tip dismissed for ${installId} at milestone ${milestoneNum}`);
+
+  return res.status(200).json({
+    success: true,
+    lastTipMilestone: milestoneNum
   });
 });
 

@@ -9,6 +9,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const connectionStatus = document.getElementById('connectionStatus');
   const searchStats = document.getElementById('searchStats');
 
+  // Tip prompt state
+  const STRIPE_TIP_LINK = 'https://buy.stripe.com/3cI28kgS51hV2L88xodZ600';
+  let tipPromptData = null;
+
   // IATA to ICAO carrier mapping for FlightAware URLs (must be defined before use)
   const IATA_TO_ICAO = {
     'AA': 'AAL', 'AS': 'ASA', 'B6': 'JBU', 'DL': 'DAL',
@@ -183,6 +187,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (prefetched[flightNumber]) {
       const response = prefetched[flightNumber];
 
+      // Check for tip prompt data
+      if (response.showTipPrompt && response.currentMilestone && !tipPromptData) {
+        tipPromptData = {
+          totalLookups: response.totalLookups,
+          currentMilestone: response.currentMilestone
+        };
+      }
+
       if (response.error) {
         updateCardError(card, response.error);
       } else if (response.stats && response.stats.error) {
@@ -205,6 +217,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         origin: origin,
         destination: destination
       });
+
+      // Check for tip prompt data
+      if (response.showTipPrompt && response.currentMilestone && !tipPromptData) {
+        tipPromptData = {
+          totalLookups: response.totalLookups,
+          currentMilestone: response.currentMilestone
+        };
+      }
 
       if (response.error) {
         updateCardError(card, response.error);
@@ -292,7 +312,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function onFlightLoaded() {
     loadedFlights++;
 
-    // Once all flights are loaded, update badge color
+    // Once all flights are loaded, update badge color and show tip if needed
     if (loadedFlights >= totalFlights) {
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -306,6 +326,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       } catch (e) {
         // Ignore errors
       }
+
+      // Show tip card if applicable
+      if (tipPromptData) {
+        showTipCard(tipPromptData.totalLookups, tipPromptData.currentMilestone);
+      }
     }
   }
 
@@ -316,5 +341,66 @@ document.addEventListener('DOMContentLoaded', async () => {
     const hours = Math.floor(minutes / 60);
     const mins = Math.round(minutes % 60);
     return `${hours}h ${mins}m`;
+  }
+
+  // ============================================================
+  // TIP CARD FUNCTIONS
+  // ============================================================
+
+  function createTipCard(totalLookups, currentMilestone) {
+    const card = document.createElement('div');
+    card.className = 'tip-card';
+    card.id = 'tipCard';
+
+    card.innerHTML = `
+      <button class="tip-dismiss" id="tipDismiss" title="Dismiss">&times;</button>
+      <div class="tip-content">
+        <div class="tip-headline">Enjoying the data? Buy me a coffee</div>
+        <div class="tip-value">You've checked ${totalLookups} flight${totalLookups !== 1 ? 's' : ''} for delays</div>
+        <a href="${STRIPE_TIP_LINK}" target="_blank" class="tip-button" id="tipButton">
+          <span class="tip-icon">☕</span> Leave a Tip
+        </a>
+      </div>
+    `;
+
+    // Handle dismiss button click
+    const dismissBtn = card.querySelector('#tipDismiss');
+    dismissBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await handleTipDismiss(currentMilestone);
+      card.remove();
+    });
+
+    // Handle tip button click
+    const tipBtn = card.querySelector('#tipButton');
+    tipBtn.addEventListener('click', async (e) => {
+      // Let the link open, then dismiss
+      await handleTipDismiss(currentMilestone);
+      card.remove();
+    });
+
+    return card;
+  }
+
+  async function handleTipDismiss(milestone) {
+    try {
+      await chrome.runtime.sendMessage({
+        action: 'dismissTip',
+        milestone: milestone
+      });
+    } catch (error) {
+      console.error('Failed to dismiss tip:', error);
+    }
+  }
+
+  function showTipCard(totalLookups, currentMilestone) {
+    // Remove existing tip card if present
+    const existingTip = document.getElementById('tipCard');
+    if (existingTip) {
+      existingTip.remove();
+    }
+
+    const tipCard = createTipCard(totalLookups, currentMilestone);
+    flightList.insertBefore(tipCard, flightList.firstChild);
   }
 });
